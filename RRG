@@ -1,0 +1,123 @@
+---
+title: "S&P500 Sector ETF Relative Rotation Graph"
+author: "Jason Rodriguez"
+date: '`r Sys.Date()`'
+output: pdf_document
+---
+
+#This code will pull the price history from Yahoo Finance for the sector ETF's of the S&P500, then use that data to create daily and weekly relative rotation graphs
+
+#X = Relative Strength Ratio = 100 * SMA(RS, 10) / SMA(RS, 30)
+
+#Y = Relative Strength Momentum = 100 * x / SMA(x, 9)
+
+```{r}
+install.packages("tidyverse")
+install.packages("tidyquant")
+install.packages("TTR")
+
+library(tidyverse)
+library(tidyquant)
+library(TTR)
+```
+#Ticker Data
+```{r}
+tickers <- c("SPY", "XLK", "XLF", "XLI", "XLC", "XLP", "XLRE", "XLE", "XLY", "XLB", "XLV", "XLU")
+```
+#Sector ETF Daily Prices 
+```{r}
+prices_df <- tq_get(tickers, get = "stock.price", from = Sys.Date() - 90) 
+```
+#Sector ETF Daily Prices Simplified, with Ratio & Momentum
+```{r}
+rrg_df <- prices_df %>%
+   select(symbol, date, adjusted) %>%
+   pivot_wider(names_from = symbol, values_from = adjusted) %>%
+   pivot_longer(cols = -c(date, SPY), names_to = "symbol", values_to = "sector_price") %>%
+   group_by(symbol) %>%
+   arrange(date, .by_group = TRUE) %>%
+   mutate(rs = sector_price / SPY, 
+     rs_fast = SMA(rs, n = 10),
+     rs_slow = SMA(rs, n = 30),
+     rs_ratio = 100 * SMA(rs, 10) / SMA(rs, 30),
+     rs_momentum = 100 * rs_ratio /SMA(rs_ratio, n = 9)) %>%
+   ungroup()
+ 
+plot_rrg <- rrg_df %>%
+   select(date, symbol, rs_ratio, rs_momentum) %>%
+   filter( date >= Sys.Date() - 14)
+  
+plot_rrg <- plot_rrg %>%
+   group_by(symbol) %>%
+   arrange(desc(date), .by_group = TRUE) %>%
+   slice_head(n = 10) %>%
+   mutate(age = row_number()) %>%
+   arrange(date, .by_group = TRUE) %>%
+   ungroup()
+```
+#Creates Daily RRG
+```{r}
+plot_rrg %>%
+   ggplot(aes(x = rs_ratio, y = rs_momentum, color = symbol)) +
+   annotate("rect", xmin = 100, xmax = Inf, ymin = 100, ymax = Inf, fill = "green", alpha = .08) +
+   annotate("rect", xmin = -Inf, xmax = 100, ymin = -Inf, ymax = 100, fill = "red", alpha = .08) +
+   annotate("rect", xmin = 100, xmax = Inf, ymin = -Inf, ymax = 100, fill = "yellow", alpha = .08) +
+   annotate("rect", xmin = -Inf, xmax = 100, ymin = 100, ymax = Inf, fill = "blue", alpha = .08) +
+   geom_hline(yintercept = 100) +
+   geom_vline(xintercept = 100) +
+   geom_path(aes(group = symbol)) +
+   geom_point(aes(alpha = 1 / age), size = 3) +
+   scale_alpha_continuous(range = c(0.25, 1), guide = "none") +
+   theme_minimal() +
+   labs(x = "RS Ratio", y = "RS Momentum", title = "S&P500 Sector ETF Daily RRG")
+```
+#Sector ETF Weekly Prices
+```{r}
+weekly_rrg <- tq_get(tickers, get = "stock.prices", from = Sys.Date() - 730)
+```
+#Sector ETF Daily Prices Simplified, with Ratio & Momentum
+```{r}
+weekly_prices_df <- weekly_rrg %>%
+   select(symbol, date, adjusted) %>%
+   mutate(week = lubridate::floor_date(date, unit = "week")) %>%
+   group_by(symbol, week) %>%
+   arrange(date, .by_group = TRUE) %>%
+   slice_tail(n = 1) %>%
+   ungroup() %>%
+   select(date, symbol, adjusted) %>%
+   pivot_wider(names_from = symbol, values_from = adjusted) %>%
+   pivot_longer(cols = -c(date, SPY), names_to = "symbol", values_to = "sector_price") %>%
+   group_by(symbol) %>%
+   arrange(date, .by_group = TRUE) %>%
+   mutate(rs = sector_price / SPY, 
+        rs_fast = SMA(rs, n = 10),
+        rs_slow = SMA(rs, n = 30),
+        rs_ratio = 100 * SMA(rs, 10) / SMA(rs, 30),
+        rs_momentum = 100 * rs_ratio /SMA(rs_ratio, n = 9)) %>%
+   ungroup()
+
+plot_weekly_rrg <- weekly_prices_df %>%
+  select(date, symbol, rs_ratio, rs_momentum) %>%
+  filter(!is.na(rs_ratio), !is.na(rs_momentum)) %>%
+  group_by(symbol) %>%
+  arrange(desc(date), .by_group = TRUE) %>%
+  slice_head(n = 10) %>%
+  mutate(age = row_number()) %>%
+  arrange(date, .by_group = TRUE) %>%
+  ungroup()
+```
+#Creates Weekly RRG
+```{r}
+plot_weekly_rrg %>%
+   ggplot(aes(x = rs_ratio, y = rs_momentum, color = symbol)) +
+   annotate("rect", xmin = 100, xmax = Inf, ymin = 100, ymax = Inf, fill = "green", alpha = .08) +
+   annotate("rect", xmin = -Inf, xmax = 100, ymin = -Inf, ymax = 100, fill = "red", alpha = .08) +
+   annotate("rect", xmin = 100, xmax = Inf, ymin = -Inf, ymax = 100, fill = "yellow", alpha = .08) +
+   annotate("rect", xmin = -Inf, xmax = 100, ymin = 100, ymax = Inf, fill = "blue", alpha = .08) +
+   geom_hline(yintercept = 100) +
+   geom_vline(xintercept = 100) +
+   geom_path(aes(group = symbol, alpha = 1 / age,)) +
+   geom_point(aes(alpha = 1 / age), size = 3) +
+   scale_alpha_continuous(range = c(0.25, 1), guide = "none") +
+   theme_minimal() +
+   labs(x = "RS Ratio", y = "RS Momentum", title = "S&P500 Sector ETF Weekly RRG")
